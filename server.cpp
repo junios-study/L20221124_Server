@@ -32,11 +32,11 @@ char Data[18] = { 0, };
 unsigned WINAPI WorkThread(void* Arg)
 {
 	SOCKET ClientSocket = *(SOCKET*)Arg;
-	char Buffer[1024] = { 0, };
 
 	while (true)
 	{
-		int RecvLength = recv(ClientSocket, Buffer, sizeof(Buffer), 0);
+		int RecvLength = recv(ClientSocket, Data, sizeof(Data), 0);
+
 		if (RecvLength <= 0)
 		{
 			//disconnect
@@ -48,18 +48,51 @@ unsigned WINAPI WorkThread(void* Arg)
 		}
 		else
 		{
-			//·ÎÁ÷ X
-			for (auto Player : PlayerList)
+			//packet parse, deserialize
+			unsigned short Code = 0;
+			memcpy(&Code, &Data[0], sizeof(Code));
+			SOCKET FromID = 0;
+			memcpy(&FromID, &Data[2], sizeof(FromID));
+
+			Code = ntohs(Code);
+			FromID = ntohll(FromID);
+
+			int X = 0;
+			int Y = 0;
+
+			switch ((MessagePacket)Code)
 			{
-				int SentLength = send(Player.first, Buffer, (int)strlen(Buffer) + 1, 0);
-				if (SentLength <= 0)
+				case MessagePacket::C2S_Move:
 				{
-					closesocket(ClientSocket);
-					EnterCriticalSection(&ServerCS);
-					PlayerList.erase(PlayerList.find(ClientSocket));
-					LeaveCriticalSection(&ServerCS);
-					break;
+					memcpy(&X, &Data[10], sizeof(X));
+					X = ntohl(X);
+					memcpy(&Y, &Data[14], sizeof(Y));
+					Y = ntohl(Y);
+
+					//update PlayerList
+					auto UpdatePlayer = PlayerList.find(FromID);
+					UpdatePlayer->second->X = X;
+					UpdatePlayer->second->Y = Y;
+
+					unsigned short Code = htons((unsigned short)MessagePacket::S2C_Move);
+					memcpy(&Data[0], &Code, sizeof(Code));
+					SOCKET SendID = htonll(FromID);
+					memcpy(&Data[2], &SendID, sizeof(SendID));
+					int Temp = htonl(X);
+					memcpy(&Data[10], &Temp, sizeof(Temp));
+					Temp = htonl(Y);
+					memcpy(&Data[14], &Temp, sizeof(Temp));
+
+					//send
+					for (auto Player : PlayerList)
+					{
+						int SentBytes = send(Player.second->MySocket, Data, sizeof(Data), 0);
+					}
 				}
+				break;
+
+			default:
+				break;
 			}
 		}
 	}
@@ -101,7 +134,7 @@ int main()
 		NewPlayer->MySocket = NewClientSocket;
 		PlayerList[NewClientSocket] = NewPlayer;
 		LeaveCriticalSection(&ServerCS);
-		
+
 		//S2C_RegisterID
 
 		unsigned short Code = htons((unsigned short)MessagePacket::S2C_RegisterID);
