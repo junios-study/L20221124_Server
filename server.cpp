@@ -35,15 +35,39 @@ unsigned WINAPI WorkThread(void* Arg)
 
 	while (true)
 	{
-		int RecvLength = recv(ClientSocket, Data, sizeof(Data), 0);
+		//TCP Stream 자료가 끊임 온다. 
+		int RecvBytes = 0;
+		int TotalRecvBytes = 0;
+		do
+		{
+			RecvBytes = recv(ClientSocket, &Data[TotalRecvBytes], sizeof(Data) - TotalRecvBytes, 0);
+			TotalRecvBytes += RecvBytes;
+		} while (TotalRecvBytes < sizeof(Data));
 
-		if (RecvLength <= 0)
+		if (RecvBytes <= 0)
 		{
 			//disconnect
 			closesocket(ClientSocket);
 			EnterCriticalSection(&ServerCS);
 			PlayerList.erase(PlayerList.find(ClientSocket));
+			for (auto Player : PlayerList)
+			{
+				unsigned short Code = htons((unsigned short)MessagePacket::S2C_Destroy);
+				memcpy(&Data[0], &Code, sizeof(Code));
+				SOCKET SendID = htonll(ClientSocket);
+				memcpy(&Data[2], &SendID, sizeof(SendID));
+
+				int SentBytes = 0;
+				int TotalSentBytes = 0;
+				do
+				{
+					SentBytes = send(Player.second->MySocket, &Data[TotalSentBytes], sizeof(Data) - TotalSentBytes, 0);
+					TotalSentBytes += SentBytes;
+				} while (TotalSentBytes < sizeof(Data));
+			}
 			LeaveCriticalSection(&ServerCS);
+
+
 			break;
 		}
 		else
@@ -86,7 +110,13 @@ unsigned WINAPI WorkThread(void* Arg)
 					//send
 					for (auto Player : PlayerList)
 					{
-						int SentBytes = send(Player.second->MySocket, Data, sizeof(Data), 0);
+						int SentBytes = 0;
+						int TotalSentBytes = 0;
+						do
+						{
+							SentBytes = send(Player.second->MySocket, &Data[TotalSentBytes], sizeof(Data) - TotalSentBytes, 0);
+							TotalSentBytes += SentBytes;
+						} while (TotalSentBytes < sizeof(Data));
 					}
 				}
 				break;
@@ -156,10 +186,14 @@ int main()
 				memcpy(&Data[0], &Code, sizeof(Code));
 				SOCKET SpawnID = htonll(NewClientSocket);
 				memcpy(&Data[2], &SpawnID, sizeof(SpawnID));
-				send(Player.second->MySocket, Data, sizeof(Data), 0);
-				//cout << "MessagePacket::S2C_Spawn 1" << endl;
-				//cout << "Spawn " << NewClientSocket << endl;
-				//cout << "to " << Player.second->MySocket << endl;
+
+				int SentBytes = 0;
+				int TotalSentBytes = 0;
+				do
+				{
+					SentBytes = send(Player.second->MySocket, &Data[TotalSentBytes], sizeof(Data) - TotalSentBytes, 0);
+					TotalSentBytes += SentBytes;
+				} while (TotalSentBytes < sizeof(Data));
 			}
 		}
 
@@ -183,7 +217,7 @@ int main()
 		cout << "Player Count : " << PlayerList.size() << endl;
 		for (auto Player : PlayerList)
 		{
-			cout << "Player ID : " << Player.second->MySocket;
+			cout << "Player ID : " << Player.second->MySocket << ", ";
 		}
 		LeaveCriticalSection(&ServerCS);
 
